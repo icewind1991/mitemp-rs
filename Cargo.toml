@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 btleplug = { version = "0.4.0", path = "../btleplug" }
+num_enum = "0.4.2"
 
 [dev-dependencies]
 main_error = "0.1.0"
