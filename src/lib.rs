@@ -51,9 +51,9 @@ pub fn listen(adapter: ConnectedAdapter, sensor_mac: BDAddr) -> Receiver<SensorD
 
 #[derive(Default, Clone, Debug)]
 pub struct SensorData {
-    battery: u8,
-    temperature: f32,
-    humidity: f32,
+    pub battery: u8,
+    pub temperature: f32,
+    pub humidity: f32,
 }
 
 impl SensorData {
