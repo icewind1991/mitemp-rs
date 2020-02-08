@@ -3,9 +3,11 @@ name = "mitemp"
 version = "0.1.0"
 authors = ["Robin Appelman <robin@icewind.nl>"]
 edition = "2018"
+description = "Read Xiaomi MI Temperature and Humidity Sensor over BLE"
+license = "MIT/Apache-2.0"
 
 [dependencies]
-btleplug = { version = "0.4.0", path = "../btleplug" }
+btleplug = { version = "0.4.0", git = "https://github.com/icewind1991/btleplug#merged" }
 num_enum = "0.4.2"
 
 [dev-dependencies]
