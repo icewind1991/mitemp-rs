@@ -1,7 +1,3 @@
-#![allow(dead_code)]
-#![allow(unused_variables)]
-#![allow(unused_mut)]
-
 pub use btleplug::api::BDAddr;
 use btleplug::api::{Central, CentralEvent};
 use btleplug::bluez::adapter::ConnectedAdapter;
@@ -9,54 +5,36 @@ use btleplug::bluez::manager::Manager;
 use btleplug::bluez::protocol::hci::LEAdvertisingData;
 use num_enum::TryFromPrimitive;
 use std::convert::TryFrom;
-use std::sync::mpsc::{channel, Receiver};
+use std::marker::PhantomData;
+use std::ops::Deref;
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
-pub fn listen(adapter: ConnectedAdapter, sensor_mac: BDAddr) -> Receiver<SensorData> {
-    let (tx, rx) = channel();
+pub trait SensorState {}
 
-    let mut sensor_data = Arc::new(Mutex::new(SensorData::default()));
+pub struct Inactive {}
 
-    adapter.on_event(Box::new(move |ev| {
-        match ev {
-            CentralEvent::DeviceDiscovered(discovered_mac, data)
-            | CentralEvent::DeviceUpdated(discovered_mac, data)
-                if sensor_mac == discovered_mac =>
-            {
-                //                    dbg!(data);
-                for item in data {
-                    match item {
-                        LEAdvertisingData::ServiceData16(id, data) => {
-                            if let Some(sensor_update) = parse_advertising_data(data) {
-                                let updated = {
-                                    let mut data = sensor_data.lock().unwrap();
-                                    data.update(sensor_update);
-                                    data.clone()
-                                };
-                                tx.send(updated).unwrap()
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            _ => {}
-        };
-    }));
+impl SensorState for Inactive {}
 
-    adapter.start_scan().unwrap();
+pub struct Active {}
 
-    rx
+impl SensorState for Active {}
+
+pub struct Sensor<State: SensorState> {
+    mac: BDAddr,
+    adapter: ConnectedAdapter,
+    data: Arc<Mutex<SensorInnerData>>,
+    state: PhantomData<State>,
 }
 
 #[derive(Default, Clone, Debug)]
-pub struct SensorData {
-    pub battery: u8,
-    pub temperature: f32,
-    pub humidity: f32,
+struct SensorInnerData {
+    battery: u8,
+    temperature: i16,
+    humidity: u16,
 }
 
-impl SensorData {
+impl SensorInnerData {
     fn update(&mut self, update: SensorUpdate) {
         match update {
             SensorUpdate::Temperature(temp) => self.temperature = temp,
@@ -70,11 +48,91 @@ impl SensorData {
     }
 }
 
+impl Sensor<Inactive> {
+    pub fn new(adapter: ConnectedAdapter, sensor_mac: BDAddr) -> Self {
+        Sensor {
+            mac: sensor_mac,
+            adapter,
+            data: Arc::default(),
+            state: PhantomData,
+        }
+    }
+
+    fn activate(self, tx: Option<Sender<SensorData>>) -> Sensor<Active> {
+        let data = self.data.clone();
+        let sensor_mac = self.mac.clone();
+
+        self.adapter.on_event(Box::new(move |ev| {
+            match ev {
+                CentralEvent::DeviceDiscovered(discovered_mac, advertising_data)
+                | CentralEvent::DeviceUpdated(discovered_mac, advertising_data)
+                    if sensor_mac == discovered_mac =>
+                {
+                    if let (Some(sensor_update), Ok(mut data)) =
+                        (parse_advertising_data(advertising_data), data.lock())
+                    {
+                        data.update(sensor_update);
+                        if let Some(tx) = &tx {
+                            let _ = tx.send(SensorData::from(data.deref()));
+                        }
+                    }
+                }
+                _ => {}
+            };
+        }));
+
+        self.adapter.start_scan().unwrap();
+
+        Sensor {
+            mac: self.mac,
+            adapter: self.adapter,
+            data: self.data,
+            state: PhantomData,
+        }
+    }
+
+    pub fn start(self) -> Sensor<Active> {
+        self.activate(None)
+    }
+
+    pub fn listen(self) -> Receiver<SensorData> {
+        let (tx, rx) = channel();
+        self.activate(Some(tx));
+        rx
+    }
+}
+
+impl Sensor<Active> {
+    pub fn get_data(&self) -> SensorData {
+        self.data
+            .lock()
+            .map(|data| SensorData::from(data.deref()))
+            .unwrap_or_default()
+    }
+}
+
+#[derive(Default, Clone, Debug)]
+pub struct SensorData {
+    pub battery: u8,
+    pub temperature: f32,
+    pub humidity: f32,
+}
+
+impl From<&SensorInnerData> for SensorData {
+    fn from(inner: &SensorInnerData) -> Self {
+        SensorData {
+            battery: inner.battery,
+            temperature: inner.temperature as f32 / 10.0,
+            humidity: inner.humidity as f32 / 10.0,
+        }
+    }
+}
+
 pub fn adapter_by_mac(addr: BDAddr) -> Result<ConnectedAdapter, btleplug::Error> {
     let manager = Manager::new()?;
     let adapters = manager.adapters()?;
 
-    let mut adapter = adapters
+    let adapter = adapters
         .into_iter()
         .find(|adapter| adapter.addr == addr)
         .ok_or(btleplug::Error::DeviceNotFound)?;
@@ -94,32 +152,37 @@ enum SensorType {
 #[derive(Debug)]
 enum SensorUpdate {
     Battery(u8),
-    Temperature(f32),
-    Humidity(f32),
-    TemperatureAndHumidity(f32, f32),
+    Temperature(i16),
+    Humidity(u16),
+    TemperatureAndHumidity(i16, u16),
 }
 
-fn parse_advertising_data(data: &[u8]) -> Option<SensorUpdate> {
-    const SENSOR_HUMIDITY: u8 = 0x06;
-    const SENSOR_TEMPERATURE: u8 = 0x04;
-
-    let sensor_type = &data[1..4];
-    assert_eq!(sensor_type, &[0x20, 0xaa, 0x01]);
-    let sensor_type = SensorType::try_from(data[11]).ok()?;
-    let data_length = data[13] as usize;
-    assert_eq!(14 + data_length, data.len());
-    let sensor_data = &data[14..14 + data_length];
-    match sensor_type {
-        SensorType::Battery => Some(SensorUpdate::Battery(sensor_data[0])),
-        SensorType::Temperature => Some(SensorUpdate::Temperature(
-            i16::from_le_bytes([sensor_data[0], sensor_data[1]]) as f32 / 10.0,
-        )),
-        SensorType::Humidity => Some(SensorUpdate::Humidity(
-            u16::from_le_bytes([sensor_data[0], sensor_data[1]]) as f32 / 10.0,
-        )),
-        SensorType::TemperatureAndHumidity => Some(SensorUpdate::TemperatureAndHumidity(
-            i16::from_le_bytes([sensor_data[0], sensor_data[1]]) as f32 / 10.0,
-            u16::from_le_bytes([sensor_data[2], sensor_data[3]]) as f32 / 10.0,
-        )),
+fn parse_advertising_data(advertising_data: &[LEAdvertisingData]) -> Option<SensorUpdate> {
+    for item in advertising_data {
+        if let LEAdvertisingData::ServiceData16(_, service_data) = item {
+            let sensor_type = &service_data[1..4];
+            assert_eq!(sensor_type, &[0x20, 0xaa, 0x01]);
+            let sensor_type = SensorType::try_from(service_data[11]).ok()?;
+            let data_length = service_data[13] as usize;
+            assert_eq!(14 + data_length, service_data.len());
+            let sensor_data = &service_data[14..14 + data_length];
+            return match sensor_type {
+                SensorType::Battery => Some(SensorUpdate::Battery(sensor_data[0])),
+                SensorType::Temperature => Some(SensorUpdate::Temperature(i16::from_le_bytes([
+                    sensor_data[0],
+                    sensor_data[1],
+                ]))),
+                SensorType::Humidity => Some(SensorUpdate::Humidity(u16::from_le_bytes([
+                    sensor_data[0],
+                    sensor_data[1],
+                ]))),
+                SensorType::TemperatureAndHumidity => Some(SensorUpdate::TemperatureAndHumidity(
+                    i16::from_le_bytes([sensor_data[0], sensor_data[1]]),
+                    u16::from_le_bytes([sensor_data[2], sensor_data[3]]),
+                )),
+            };
+        }
     }
+
+    None
 }
