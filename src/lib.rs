@@ -12,14 +12,17 @@ use std::sync::{Arc, Mutex};
 
 pub trait SensorState {}
 
+#[derive(Clone)]
 pub struct Inactive {}
 
 impl SensorState for Inactive {}
 
+#[derive(Clone)]
 pub struct Active {}
 
 impl SensorState for Active {}
 
+#[derive(Clone)]
 pub struct Sensor<State: SensorState> {
     mac: BDAddr,
     adapter: ConnectedAdapter,
