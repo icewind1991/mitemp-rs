@@ -2,7 +2,8 @@
 #![allow(unused_variables)]
 #![allow(unused_mut)]
 
-use btleplug::api::{BDAddr, Central, CentralEvent};
+pub use btleplug::api::BDAddr;
+use btleplug::api::{Central, CentralEvent};
 use btleplug::bluez::adapter::ConnectedAdapter;
 use btleplug::bluez::manager::Manager;
 use btleplug::bluez::protocol::hci::LEAdvertisingData;

@@ -1,5 +1,4 @@
-use btleplug::api::BDAddr;
-use mitemp::{adapter_by_mac, listen};
+use mitemp::{adapter_by_mac, listen, BDAddr};
 use std::str::FromStr;
 
 fn main() -> Result<(), btleplug::Error> {
