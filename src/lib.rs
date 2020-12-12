@@ -5,8 +5,6 @@ use btleplug::bluez::manager::Manager;
 use num_enum::TryFromPrimitive;
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::sync::mpsc::{channel, Receiver};
-use std::thread::spawn;
 
 #[derive(Clone, Debug)]
 pub struct Sensor {
@@ -37,9 +35,7 @@ impl SensorRawData {
 
 pub fn listen<P: Peripheral, A: Central<P> + 'static>(
     adapter: A,
-) -> Result<Receiver<Sensor>, btleplug::Error> {
-    let (tx, rx) = channel();
-
+) -> Result<impl Iterator<Item = Sensor>, btleplug::Error> {
     let mut sensors: HashMap<BDAddr, SensorRawData> = HashMap::new();
 
     let event_receiver = adapter.event_receiver().unwrap();
@@ -47,29 +43,31 @@ pub fn listen<P: Peripheral, A: Central<P> + 'static>(
     // start scanning for devices
     adapter.start_scan()?;
 
-    spawn(move || {
-        while let Ok(event) = event_receiver.recv() {
-            match event {
-                CentralEvent::DeviceDiscovered(bd_addr) | CentralEvent::DeviceUpdated(bd_addr) => {
-                    let peripheral = adapter.peripheral(bd_addr).unwrap();
-                    for data in peripheral.properties().service_data.values() {
-                        if let Ok(update) = parse_advertising_data(data.as_slice()) {
-                            let sensor_data = sensors.entry(bd_addr).or_default();
-                            sensor_data.update(update);
-                            tx.send(Sensor {
-                                mac: bd_addr,
-                                data: (*sensor_data).into(),
-                            })
-                            .unwrap();
-                        }
-                    }
-                }
-                _ => {}
+    Ok(event_receiver
+        .into_iter()
+        .filter_map(|event| match event {
+            CentralEvent::DeviceDiscovered(bd_addr) | CentralEvent::DeviceUpdated(bd_addr) => {
+                Some(bd_addr)
             }
-        }
-    });
-
-    Ok(rx)
+            _ => None,
+        })
+        .flat_map(move |bd_addr| {
+            let peripheral = adapter.peripheral(bd_addr).unwrap();
+            peripheral
+                .properties()
+                .service_data
+                .into_iter()
+                .map(move |(_, data)| (bd_addr, data))
+        })
+        .filter_map(|(bd_addr, data)| Some((bd_addr, parse_advertising_data(&data).ok()?)))
+        .map(move |(bd_addr, update)| {
+            let sensor_data = sensors.entry(bd_addr).or_default();
+            sensor_data.update(update);
+            Sensor {
+                mac: bd_addr,
+                data: (*sensor_data).into(),
+            }
+        }))
 }
 
 #[derive(Default, Clone, Debug)]
