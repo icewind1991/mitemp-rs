@@ -1,13 +1,13 @@
 [package]
 name = "mitemp"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Robin Appelman <robin@icewind.nl>"]
 edition = "2018"
 description = "Read Xiaomi MI Temperature and Humidity Sensor over BLE"
 license = "MIT/Apache-2.0"
 
 [dependencies]
-btleplug = { version = "0.4.0", git = "https://github.com/icewind1991/btleplug", branch = "merged" }
+btleplug = { version = "0.5.0", git = "https://github.com/icewind1991/btleplug", branch = "store-service-data" }
 num_enum = "0.4.2"
 
 [dev-dependencies]
