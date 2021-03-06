@@ -1,11 +1,11 @@
 pub use btleplug::api::BDAddr;
 use btleplug::api::{Central, CentralEvent, Peripheral};
-use btleplug::bluez::adapter::ConnectedAdapter;
-use btleplug::bluez::manager::Manager;
+use btleplug::platform::{Adapter, Manager};
 use num_enum::TryFromPrimitive;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
+/// Detected mitemp sensor and the data read from it
 #[derive(Clone, Debug)]
 pub struct Sensor {
     pub mac: BDAddr,
@@ -33,7 +33,10 @@ impl SensorRawData {
     }
 }
 
-pub fn listen<P: Peripheral, A: Central<P> + 'static>(
+/// Listen for sensor data
+///
+/// Returns an iterator that will block waiting for new sensor data
+pub fn listen<A: Central + 'static>(
     adapter: A,
 ) -> Result<impl Iterator<Item = Sensor>, btleplug::Error> {
     let mut sensors: HashMap<BDAddr, SensorRawData> = HashMap::new();
@@ -51,13 +54,13 @@ pub fn listen<P: Peripheral, A: Central<P> + 'static>(
             }
             _ => None,
         })
-        .flat_map(move |bd_addr| {
-            let peripheral = adapter.peripheral(bd_addr).unwrap();
+        .filter_map(move |bd_addr| adapter.peripheral(bd_addr))
+        .flat_map(|peripheral| {
             peripheral
                 .properties()
                 .service_data
                 .into_iter()
-                .map(move |(_, data)| (bd_addr, data))
+                .map(move |(_, data)| (peripheral.address(), data))
         })
         .filter_map(|(bd_addr, data)| Some((bd_addr, parse_advertising_data(&data).ok()?)))
         .map(move |(bd_addr, update)| {
@@ -70,10 +73,17 @@ pub fn listen<P: Peripheral, A: Central<P> + 'static>(
         }))
 }
 
+/// Collected data from a sensor
+///
+/// Because not all data is emitted at the same time, some fields might not be populated yet
+/// in which case they are set to 0
 #[derive(Default, Clone, Debug)]
 pub struct SensorData {
+    /// Battery percentage
     pub battery: u8,
+    /// Temperature in °C
     pub temperature: f32,
+    /// Humidity in %H
     pub humidity: f32,
 }
 
@@ -87,16 +97,19 @@ impl From<SensorRawData> for SensorData {
     }
 }
 
-pub fn adapter_by_mac(addr: BDAddr) -> Result<ConnectedAdapter, btleplug::Error> {
+pub fn adapter_by_mac(addr: BDAddr) -> Result<Adapter, btleplug::Error> {
     let manager = Manager::new()?;
-    let adapters = manager.adapters()?;
-
-    let adapter = adapters
+    manager
+        .adapters()?
         .into_iter()
-        .find(|adapter| adapter.addr == addr)
-        .ok_or(btleplug::Error::DeviceNotFound)?;
-
-    adapter.connect()
+        .find(|adapter| {
+            adapter
+                .address()
+                .ok()
+                .filter(|adapter_addr| *adapter_addr == addr)
+                .is_some()
+        })
+        .ok_or(btleplug::Error::DeviceNotFound)
 }
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive, Clone, Copy)]
@@ -120,7 +133,7 @@ struct InvalidServiceData;
 
 fn parse_advertising_data(service_data: &[u8]) -> Result<SensorUpdate, InvalidServiceData> {
     let sensor_type = &service_data[1..4];
-    if sensor_type != &[0x20, 0xaa, 0x01] {
+    if sensor_type != [0x20, 0xaa, 0x01] {
         return Err(InvalidServiceData);
     }
     let sensor_type = SensorType::try_from(service_data[11]).map_err(|_| InvalidServiceData)?;
