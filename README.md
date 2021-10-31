@@ -5,20 +5,24 @@ Read Xiaomi MI Temperature and Humidity Sensor over BLE
 ## Usage
 
 ```rust
-use mitemp::{adapter_by_mac, listen, BDAddr};
-use std::str::FromStr;
+use btleplug::api::Manager as _;
+use btleplug::platform::Manager;
+use mitemp::listen;
+use tokio::pin;
+use tokio_stream::StreamExt;
 
-fn main() -> Result<(), btleplug::Error> {
-    env_logger::init();
+#[tokio::main]
+async fn main() -> Result<(), btleplug::Error> {
+    let manager = Manager::new().await?;
+    let adapter = manager.adapters().await?.pop().unwrap();
 
-    let addr = BDAddr::from_str("00:1A:7D:DA:71:08").unwrap();
-    let adapter = adapter_by_mac(addr)?;
+    let stream = listen(&adapter).await?;
+    pin!(stream);
 
-    let rx = listen(adapter)?;
-    loop {
-        let data = rx.recv().unwrap();
-        println!("{}: {:?}", data.mac, data.data);
+    while let Some(sensor) = stream.next().await {
+        println!("{}: {:?}", sensor.mac, sensor.data);
     }
+    Ok(())
 }
 ```
 

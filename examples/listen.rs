@@ -1,10 +1,9 @@
 use btleplug::api::Manager as _;
 use btleplug::platform::Manager;
-use futures_util::StreamExt;
 use main_error::MainError;
-use mitemp::{listen};
-
+use mitemp::listen;
 use tokio::pin;
+use tokio_stream::StreamExt;
 
 #[tokio::main]
 async fn main() -> Result<(), MainError> {

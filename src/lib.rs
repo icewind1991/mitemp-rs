@@ -41,9 +41,9 @@ const UUID: Uuid = Uuid::from_bytes([
 /// Listen for sensor data
 ///
 /// Returns an iterator that will block waiting for new sensor data
-pub async fn listen<'a, A: Central + 'static>(
-    adapter: &'a A,
-) -> Result<impl Stream<Item = Sensor> + 'a, btleplug::Error> {
+pub async fn listen<A: Central>(
+    adapter: &A,
+) -> Result<impl Stream<Item = Sensor>, btleplug::Error> {
     let mut sensors: HashMap<BDAddr, SensorRawData> = HashMap::new();
 
     let event_receiver = adapter.events().await?;

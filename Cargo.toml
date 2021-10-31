@@ -1,6 +1,6 @@
 [package]
 name = "mitemp"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Robin Appelman <robin@icewind.nl>"]
 edition = "2018"
 description = "Read Xiaomi MI Temperature and Humidity Sensor over BLE"
@@ -10,10 +10,9 @@ license = "MIT/Apache-2.0"
 btleplug = "0.9"
 num_enum = "0.5"
 tokio-stream = "0.1"
-futures-util = "0.3"
 uuid = "0.8"
 
 [dev-dependencies]
 main_error = "0.1"
-env_logger = "0.7"
+env_logger = "0.9"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
