@@ -1,13 +1,22 @@
-use mitemp::{adapter_by_mac, listen, BDAddr};
-use std::str::FromStr;
+use btleplug::api::Manager as _;
+use btleplug::platform::Manager;
+use futures_util::StreamExt;
+use main_error::MainError;
+use mitemp::{listen};
 
-fn main() -> Result<(), btleplug::Error> {
+use tokio::pin;
+
+#[tokio::main]
+async fn main() -> Result<(), MainError> {
     env_logger::init();
 
-    let addr = BDAddr::from_str("00:1A:7D:DA:71:08").unwrap();
-    let adapter = adapter_by_mac(addr)?;
+    let manager = Manager::new().await?;
+    let adapter = manager.adapters().await?.pop().unwrap();
 
-    for sensor in listen(adapter)? {
+    let stream = listen(&adapter).await?;
+    pin!(stream);
+
+    while let Some(sensor) = stream.next().await {
         println!("{}: {:?}", sensor.mac, sensor.data);
     }
     Ok(())

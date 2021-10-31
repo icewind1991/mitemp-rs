@@ -7,9 +7,13 @@ description = "Read Xiaomi MI Temperature and Humidity Sensor over BLE"
 license = "MIT/Apache-2.0"
 
 [dependencies]
-btleplug = { version = "0.7", git = "https://github.com/icewind1991/btleplug", branch = "unify-platform-api" }
-num_enum = "0.4"
+btleplug = "0.9"
+num_enum = "0.5"
+tokio-stream = "0.1"
+futures-util = "0.3"
+uuid = "0.8"
 
 [dev-dependencies]
 main_error = "0.1"
 env_logger = "0.7"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

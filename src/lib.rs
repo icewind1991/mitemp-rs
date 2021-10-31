@@ -1,9 +1,13 @@
 pub use btleplug::api::BDAddr;
-use btleplug::api::{Central, CentralEvent, Peripheral};
-use btleplug::platform::{Adapter, Manager};
+use btleplug::api::{Central, CentralEvent, Peripheral, ScanFilter};
+use btleplug::platform::PeripheralId;
+use futures_util::{future::ready, StreamExt};
 use num_enum::TryFromPrimitive;
 use std::collections::HashMap;
 use std::convert::TryFrom;
+
+use tokio_stream::Stream;
+use uuid::Uuid;
 
 /// Detected mitemp sensor and the data read from it
 #[derive(Clone, Debug)]
@@ -33,36 +37,47 @@ impl SensorRawData {
     }
 }
 
+const UUID: Uuid = Uuid::from_bytes([
+    0, 0, 254, 149, 0, 0, 16, 0, 128, 0, 0, 128, 95, 155, 52, 251,
+]);
+
 /// Listen for sensor data
 ///
 /// Returns an iterator that will block waiting for new sensor data
-pub fn listen<A: Central + 'static>(
-    adapter: A,
-) -> Result<impl Iterator<Item = Sensor>, btleplug::Error> {
+pub async fn listen<'a, A: Central + 'static>(
+    adapter: &'a A,
+) -> Result<impl Stream<Item = Sensor> + 'a, btleplug::Error> {
     let mut sensors: HashMap<BDAddr, SensorRawData> = HashMap::new();
 
-    let event_receiver = adapter.event_receiver().unwrap();
+    let event_receiver = adapter.events().await?;
 
     // start scanning for devices
-    adapter.start_scan()?;
+    adapter.start_scan(ScanFilter::default()).await?;
 
     Ok(event_receiver
-        .into_iter()
-        .filter_map(|event| match event {
-            CentralEvent::DeviceDiscovered(bd_addr) | CentralEvent::DeviceUpdated(bd_addr) => {
-                Some(bd_addr)
-            }
-            _ => None,
+        .filter_map(|event| {
+            ready(match event {
+                CentralEvent::ServiceDataAdvertisement { id, service_data } => {
+                    Some((id, service_data))
+                }
+                _ => None,
+            })
         })
-        .filter_map(move |bd_addr| adapter.peripheral(bd_addr))
-        .flat_map(|peripheral| {
-            peripheral
-                .properties()
-                .service_data
-                .into_iter()
-                .map(move |(_, data)| (peripheral.address(), data))
+        .filter_map(move |(id, service_data)| async move {
+            let addr = id_to_addr(adapter, id).await?;
+            Some((addr, service_data))
         })
-        .filter_map(|(bd_addr, data)| Some((bd_addr, parse_advertising_data(&data).ok()?)))
+        .filter_map(
+            |(bd_addr, mut service_data): (BDAddr, HashMap<Uuid, Vec<u8>>)| {
+                ready(service_data.remove(&UUID).map(move |data| (bd_addr, data)))
+            },
+        )
+        .filter_map(|(bd_addr, data)| {
+            ready(match parse_advertising_data(&data) {
+                Ok(update) => Some((bd_addr, update)),
+                _ => None,
+            })
+        })
         .map(move |(bd_addr, update)| {
             let sensor_data = sensors.entry(bd_addr).or_default();
             sensor_data.update(update);
@@ -71,6 +86,11 @@ pub fn listen<A: Central + 'static>(
                 data: (*sensor_data).into(),
             }
         }))
+}
+
+async fn id_to_addr<A: Central + 'static>(adapter: &A, id: PeripheralId) -> Option<BDAddr> {
+    let peripheral = adapter.peripheral(&id).await.ok()?;
+    Some(peripheral.address())
 }
 
 /// Collected data from a sensor
@@ -95,21 +115,6 @@ impl From<SensorRawData> for SensorData {
             humidity: inner.humidity as f32 / 10.0,
         }
     }
-}
-
-pub fn adapter_by_mac(addr: BDAddr) -> Result<Adapter, btleplug::Error> {
-    let manager = Manager::new()?;
-    manager
-        .adapters()?
-        .into_iter()
-        .find(|adapter| {
-            adapter
-                .address()
-                .ok()
-                .filter(|adapter_addr| *adapter_addr == addr)
-                .is_some()
-        })
-        .ok_or(btleplug::Error::DeviceNotFound)
 }
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive, Clone, Copy)]
