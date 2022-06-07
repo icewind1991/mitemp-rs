@@ -1,6 +1,6 @@
 [package]
 name = "mitemp"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Robin Appelman <robin@icewind.nl>"]
 edition = "2018"
 description = "Read Xiaomi MI Temperature and Humidity Sensor over BLE"
