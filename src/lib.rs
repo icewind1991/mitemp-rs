@@ -1,5 +1,6 @@
 pub use btleplug::api::BDAddr;
 use btleplug::api::{Central, CentralEvent, ScanFilter};
+use log::debug;
 use num_enum::TryFromPrimitive;
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -53,7 +54,10 @@ pub async fn listen<A: Central>(
 
     Ok(event_receiver
         .filter_map(|event| match event {
-            CentralEvent::ServiceDataAdvertisement { service_data, .. } => Some(service_data),
+            CentralEvent::ServiceDataAdvertisement { service_data, id } => {
+                debug!("Got service data for {:?}", id);
+                Some(service_data)
+            }
             _ => None,
         })
         .filter_map(|mut service_data| service_data.remove(&UUID))
@@ -114,6 +118,7 @@ struct InvalidServiceData;
 fn parse_advertising_data(
     service_data: &[u8],
 ) -> Result<(BDAddr, SensorUpdate), InvalidServiceData> {
+    debug!("Parsing sensor data {:?}", service_data);
     let sensor_type = &service_data[1..4];
     if sensor_type != [0x20, 0xaa, 0x01] {
         return Err(InvalidServiceData);
