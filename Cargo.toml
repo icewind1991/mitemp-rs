@@ -4,6 +4,7 @@ version = "0.4.0"
 authors = ["Robin Appelman <robin@icewind.nl>"]
 edition = "2018"
 description = "Read Xiaomi MI Temperature and Humidity Sensor over BLE"
+repository = "https://github.com/icewind1991/mitemp-rs"
 license = "MIT/Apache-2.0"
 rust-version = "1.70.0"
 
