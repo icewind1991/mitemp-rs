@@ -7,7 +7,7 @@ use tokio_stream::StreamExt;
 
 #[tokio::main]
 async fn main() -> Result<(), MainError> {
-    env_logger::init();
+    tracing_subscriber::fmt::init();
 
     let manager = Manager::new().await?;
     let adapter = manager.adapters().await?.pop().unwrap();

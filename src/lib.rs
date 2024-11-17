@@ -1,10 +1,10 @@
 pub use btleplug::api::BDAddr;
 use btleplug::api::{Central, CentralEvent, ScanFilter};
-use log::debug;
 use num_enum::TryFromPrimitive;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use tokio_stream::{Stream, StreamExt};
+use tracing::debug;
 use uuid::Uuid;
 
 /// Detected mitemp sensor and the data read from it
@@ -55,7 +55,7 @@ pub async fn listen<A: Central>(
     Ok(event_receiver
         .filter_map(|event| match event {
             CentralEvent::ServiceDataAdvertisement { service_data, id } => {
-                debug!("Got service data for {:?}", id);
+                debug!(%id, "Got service data");
                 Some(service_data)
             }
             _ => None,
@@ -118,7 +118,7 @@ struct InvalidServiceData;
 fn parse_advertising_data(
     service_data: &[u8],
 ) -> Result<(BDAddr, SensorUpdate), InvalidServiceData> {
-    debug!("Parsing sensor data {:?}", service_data);
+    debug!(?service_data, "Parsing sensor data");
     let sensor_type = &service_data[1..4];
     if sensor_type != [0x20, 0xaa, 0x01] {
         return Err(InvalidServiceData);
