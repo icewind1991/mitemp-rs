@@ -10,6 +10,5 @@
       inputs.flakelight.follows = "flakelight";
     };
   };
-  outputs = { mill-scale, ... }: mill-scale ./. {
-  };
+  outputs = { mill-scale, ... }: mill-scale ./. { };
 }
