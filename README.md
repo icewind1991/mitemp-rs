@@ -1,3 +1,5 @@
+# Moved to https://codeberg.org/icewind/mitemp-rs
+
 # mitemp.rs
 
 Read Xiaomi MI Temperature and Humidity Sensor over BLE
